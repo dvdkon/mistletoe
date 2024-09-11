@@ -1,7 +1,7 @@
 import unittest
 
-from mistletoe import Document
-from mistletoe import block_token
+from mistletoe import Document, block_token
+from mistletoe.parser import Parser
 
 
 class TestRepr(unittest.TestCase):
@@ -65,11 +65,9 @@ class TestRepr(unittest.TestCase):
     # No test for ``Footnote``
 
     def test_htmlblock(self):
-        try:
-            block_token.add_token(block_token.HtmlBlock)
-            doc = Document("<pre>\nFoo\n</pre>\n")
-        finally:
-            block_token.reset_tokens()
+        parser = Parser()
+        parser.add_block_token(block_token.HtmlBlock)
+        doc = parser.parse_document("<pre>\nFoo\n</pre>\n")
         self._check_repr_matches(doc.children[0], "block_token.HtmlBlock with 1 child line_number=1")
         self._check_repr_matches(doc.children[0].children[0], "span_token.RawText content='<pre>\\nFoo\\n</pre>'")
 

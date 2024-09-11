@@ -4,61 +4,14 @@ Built-in span-level token classes.
 
 import html
 import re
-import mistletoe.span_tokenizer as tokenizer
 from mistletoe import core_tokens, token
 
 
+__all__ = ['EscapeSequence', 'Strikethrough', 'AutoLink', 'CoreTokens',
+           'InlineCode', 'LineBreak', 'RawText']
 """
 Tokens to be included in the parsing process, in the order specified.
 """
-__all__ = ['EscapeSequence', 'Strikethrough', 'AutoLink', 'CoreTokens',
-           'InlineCode', 'LineBreak', 'RawText']
-
-
-def tokenize_inner(content):
-    """
-    A wrapper around span_tokenizer.tokenize. Pass in all span-level token
-    constructors as arguments to span_tokenizer.tokenize.
-
-    Doing so (instead of importing span_token module in span_tokenizer)
-    avoids cyclic dependency issues, and allows for future injections of
-    custom token classes.
-
-    _token_types variable is at the bottom of this module.
-
-    See also: span_tokenizer.tokenize, block_token.tokenize.
-    """
-    return tokenizer.tokenize(content, _token_types)
-
-
-def add_token(token_cls, position=1):
-    """
-    Allows external manipulation of the parsing process.
-    This function is called in BaseRenderer.__enter__.
-
-    Arguments:
-        token_cls (SpanToken): token to be included in the parsing process.
-    """
-    _token_types.insert(position, token_cls)
-
-
-def remove_token(token_cls):
-    """
-    Allows external manipulation of the parsing process.
-    This function is called in BaseRenderer.__exit__.
-
-    Arguments:
-        token_cls (SpanToken): token to be removed from the parsing process.
-    """
-    _token_types.remove(token_cls)
-
-
-def reset_tokens():
-    """
-    Resets global _token_types to all token classes in __all__.
-    """
-    global _token_types
-    _token_types = [globals()[cls_name] for cls_name in __all__]
 
 
 class SpanToken(token.Token):
@@ -76,7 +29,7 @@ class SpanToken(token.Token):
         return text in self.content
 
     @classmethod
-    def find(cls, string):
+    def find(cls, parser, string):
         return cls.pattern.finditer(string)
 
 
@@ -87,12 +40,12 @@ class CoreTokens(SpanToken):
     """
     precedence = 3
 
-    def __new__(self, match):
+    def __new__(cls, match):
         return globals()[match.type](match)
 
     @classmethod
-    def find(cls, string):
-        return core_tokens.find_core_tokens(string, token._root_node)
+    def find(cls, parser, string):
+        return core_tokens.find_core_tokens(string, parser._root_node)
 
 
 class Strong(SpanToken):
@@ -134,7 +87,7 @@ class InlineCode(SpanToken):
         self.children = (RawText(content),)
 
     @classmethod
-    def find(cls, string):
+    def find(cls, parser, string):
         matches = core_tokens._code_matches
         core_tokens._code_matches = []
         return matches
@@ -260,6 +213,9 @@ class RawText(SpanToken):
     def __init__(self, content):
         self.content = content
 
+    @classmethod
+    def find(cls, parser, string):
+        return []
 
 _tags = {'address', 'article', 'aside', 'base', 'basefont', 'blockquote',
         'body', 'caption', 'center', 'col', 'colgroup', 'dd', 'details',
@@ -325,7 +281,3 @@ class XWikiBlockMacroEnd(SpanToken):
     pattern = re.compile(r'^(?:\s*)(\{\{/\w+\}\})', re.MULTILINE)
     parse_inner = False
     parse_group = 1
-
-
-_token_types = []
-reset_tokens()

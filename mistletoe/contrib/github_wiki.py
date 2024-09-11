@@ -25,6 +25,7 @@ class GithubWikiRenderer(HtmlRenderer):
                       constructor.
         """
         super().__init__(GithubWiki, **kwargs)
+        print(self.parser._span_token_types)
 
     def render_github_wiki(self, token):
         template = '<a href="{target}">{inner}</a>'

@@ -3,17 +3,18 @@ from collections import ChainMap
 from functools import reduce
 from mistletoe.base_renderer import BaseRenderer
 from mistletoe import span_token, block_token
+from mistletoe.parser import Parser
 from mistletoe.core_tokens import MatchObj
 
 
 class Program(block_token.BlockToken):
-    def __init__(self, lines):
-        self.children = span_token.tokenize_inner(''.join([line.strip() for line in lines]))
+    def __init__(self, parser, lines):
+        self.children = parser.tokenize_inner(''.join([line.strip() for line in lines]))
 
 
 class Expr(span_token.SpanToken):
     @classmethod
-    def find(cls, string):
+    def find(cls, parser, string):
         matches = []
         start = []
         for i, c in enumerate(string):
@@ -55,7 +56,7 @@ class Variable(span_token.SpanToken):
 class Whitespace(span_token.SpanToken):
     parse_inner = False
 
-    def __new__(self, _):
+    def __new__(cls, _):
         return None
 
 
@@ -74,8 +75,10 @@ class Scheme(BaseRenderer):
             "Number": self.render_number,
             "Variable": self.render_variable,
         }
-        block_token._token_types = []
-        span_token._token_types = [Expr, Number, Variable, Whitespace]
+        self.parser = Parser()
+        self.parser._block_token_types = []
+        self.parser._span_token_types = [Expr, Number, Variable]
+        self.parser._fallback_token = Whitespace
 
         self.env = ChainMap({
             "define": self.define,

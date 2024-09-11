@@ -30,10 +30,9 @@ class TestHtmlRenderer(TestRenderer):
         self._test_token('Emphasis', '<em>inner</em>')
 
     def test_inline_code(self):
-        from mistletoe.span_token import tokenize_inner
-        output = self.renderer.render(tokenize_inner('`foo`')[0])
+        output = self.renderer.render(self.renderer.parser.tokenize_inner('`foo`')[0])
         self.assertEqual(output, '<code>foo</code>')
-        output = self.renderer.render(tokenize_inner('`` \\[\\` ``')[0])
+        output = self.renderer.render(self.renderer.parser.tokenize_inner('`` \\[\\` ``')[0])
         self.assertEqual(output, '<code>\\[\\`</code>')
 
     def test_strikethrough(self):
@@ -74,14 +73,12 @@ class TestHtmlRenderer(TestRenderer):
         self._test_token('Paragraph', '<p>inner</p>')
 
     def test_block_code(self):
-        from mistletoe.block_token import tokenize
-        output = self.renderer.render(tokenize(['```sh\n', 'foo\n', '```\n'])[0])
+        output = self.renderer.render(self.renderer.parser.tokenize_blocks(['```sh\n', 'foo\n', '```\n'])[0])
         expected = '<pre><code class="language-sh">foo\n</code></pre>'
         self.assertEqual(output, expected)
 
     def test_block_code_no_language(self):
-        from mistletoe.block_token import tokenize
-        output = self.renderer.render(tokenize(['```\n', 'foo\n', '```\n'])[0])
+        output = self.renderer.render(self.renderer.parser.tokenize_blocks(['```\n', 'foo\n', '```\n'])[0])
         expected = '<pre><code>foo\n</code></pre>'
         self.assertEqual(output, expected)
 

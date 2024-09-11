@@ -52,7 +52,7 @@ class FileWrapper:
         return self.start_line + self._index
 
 
-def tokenize(iterable, token_types):
+def tokenize(iterable, parser, token_types):
     """
     Searches for token_types in iterable.
 
@@ -63,10 +63,10 @@ def tokenize(iterable, token_types):
     Returns:
         block-level token instances.
     """
-    return make_tokens(tokenize_block(iterable, token_types))
+    return make_tokens(parser, tokenize_block(iterable, parser, token_types))
 
 
-def tokenize_block(iterable, token_types, start_line=1):
+def tokenize_block(iterable, parser, token_types, start_line=1):
     """
     Returns a list of tuples (token_type, read_result, line_number).
 
@@ -78,9 +78,10 @@ def tokenize_block(iterable, token_types, start_line=1):
     line = lines.peek()
     while line is not None:
         for token_type in token_types:
-            if token_type.start(line):
+            token_ctx = token_type.start(parser, line)
+            if token_ctx:
                 line_number = lines.line_number() + 1
-                result = token_type.read(lines)
+                result = token_type.read(parser, token_ctx, lines)
                 if result is not None:
                     parse_buffer.append((token_type, result, line_number))
                     break
@@ -91,7 +92,7 @@ def tokenize_block(iterable, token_types, start_line=1):
     return parse_buffer
 
 
-def make_tokens(parse_buffer):
+def make_tokens(parser, parse_buffer):
     """
     Takes a list of tuples (token_type, read_result, line_number),
     applies token_type(read_result), and sets the line_number attribute.
@@ -101,7 +102,7 @@ def make_tokens(parse_buffer):
     """
     tokens = []
     for token_type, result, line_number in parse_buffer:
-        token = token_type(result)
+        token = token_type(parser, result)
         if token is not None:
             token.line_number = line_number
             tokens.append(token)

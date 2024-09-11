@@ -5,7 +5,7 @@ Built-in block-level token classes.
 import re
 from itertools import zip_longest
 import mistletoe.block_tokenizer as tokenizer
-from mistletoe import token, span_token
+from mistletoe import token, span_token, parser
 from mistletoe.core_tokens import (
         follows,
         shift_whitespace,
@@ -14,59 +14,14 @@ from mistletoe.core_tokens import (
         normalize_label,
 )
 
+from typing import Any
+
 
 """
 Tokens to be included in the parsing process, in the order specified.
 """
 __all__ = ['BlockCode', 'Heading', 'Quote', 'CodeFence', 'ThematicBreak',
            'List', 'Table', 'Footnote', 'Paragraph']
-
-
-def tokenize(lines):
-    """
-    A wrapper around block_tokenizer.tokenize. Pass in all block-level
-    token constructors as arguments to block_tokenizer.tokenize.
-
-    Doing so (instead of importing block_token module in block_tokenizer)
-    avoids cyclic dependency issues, and allows for future injections of
-    custom token classes.
-
-    _token_types variable is at the bottom of this module.
-
-    See also: block_tokenizer.tokenize, span_token.tokenize_inner.
-    """
-    return tokenizer.tokenize(lines, _token_types)
-
-
-def add_token(token_cls, position=0):
-    """
-    Allows external manipulation of the parsing process.
-    This function is usually called in BaseRenderer.__enter__.
-
-    Arguments:
-        token_cls (SpanToken): token to be included in the parsing process.
-        position (int): the position for the token class to be inserted into.
-    """
-    _token_types.insert(position, token_cls)
-
-
-def remove_token(token_cls):
-    """
-    Allows external manipulation of the parsing process.
-    This function is usually called in BaseRenderer.__exit__.
-
-    Arguments:
-        token_cls (BlockToken): token to be removed from the parsing process.
-    """
-    _token_types.remove(token_cls)
-
-
-def reset_tokens():
-    """
-    Resets global _token_types to all token classes in __all__.
-    """
-    global _token_types
-    _token_types = [globals()[cls_name] for cls_name in __all__]
 
 
 class BlockToken(token.Token):
@@ -117,8 +72,8 @@ class BlockToken(token.Token):
     def __contains__(self, text):
         return any(text in child for child in self.children)
 
-    @staticmethod
-    def read(lines):
+    @classmethod
+    def read(cls, parser, ctx, lines) -> Any:
         line_buffer = [next(lines)]
         for line in lines:
             if line == '\n':
@@ -136,15 +91,18 @@ class Document(BlockToken):
         footnotes (dictionary): link reference definitions.
     """
 
-    def __init__(self, lines):
-        if isinstance(lines, str):
-            lines = lines.splitlines(keepends=True)
-        lines = [line if line.endswith('\n') else '{}\n'.format(line) for line in lines]
+    def __init__(self, lines=None):
         self.footnotes = {}
+        self.children = []
         self.line_number = 1
-        token._root_node = self
-        self.children = tokenize(lines)
-        token._root_node = None
+
+        if lines is not None:
+            # Copmatibility constructor using global parser
+            if parser._global_parser is None:
+                parser._global_parser = parser.Parser()
+            doc = parser._global_parser.parse_document(lines)
+            self.footnotes = doc.footnotes
+            self.children = doc.children
 
 
 class Heading(BlockToken):
@@ -160,12 +118,12 @@ class Heading(BlockToken):
     level = 0
     content = ''
 
-    def __init__(self, match):
+    def __init__(self, parser, match):
         self.level, content, self.closing_sequence = match
-        super().__init__(content, span_token.tokenize_inner)
+        super().__init__(content, parser.tokenize_inner)
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         match_obj = cls.pattern.match(line)
         if match_obj is None:
             return False
@@ -177,11 +135,11 @@ class Heading(BlockToken):
         return True
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
-        return cls.start(lines.peek())
+    def check_interrupts_paragraph(cls, parser, lines):
+        return cls.start(parser, lines.peek())
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         next(lines)
         return cls.level, cls.content, cls.closing_sequence
 
@@ -198,18 +156,18 @@ class SetextHeading(BlockToken):
     """
     repr_attributes = BlockToken.repr_attributes + ("level",)
 
-    def __init__(self, lines):
+    def __init__(self, parser, lines):
         self.underline = lines.pop().rstrip()
         self.level = 1 if self.underline.endswith('=') else 2
         content = '\n'.join([line.strip() for line in lines])
-        super().__init__(content, span_token.tokenize_inner)
+        super().__init__(content, parser.tokenize_inner)
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         raise NotImplementedError()
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         raise NotImplementedError()
 
 
@@ -218,23 +176,23 @@ class Quote(BlockToken):
     Block quote token. (["> # heading\\n", "> paragraph\\n"])
     This is a container block token. Its children are block tokens - container or leaf ones.
     """
-    def __init__(self, parse_buffer):
+    def __init__(self, parser, parse_buffer):
         # span-level tokenizing happens here.
-        self.children = tokenizer.make_tokens(parse_buffer)
+        self.children = tokenizer.make_tokens(parser, parse_buffer)
 
     @staticmethod
-    def start(line):
+    def start(parser, line):
         stripped = line.lstrip(' ')
         if len(line) - len(stripped) > 3:
             return False
         return stripped.startswith('>')
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
-        return cls.start(lines.peek())
+    def check_interrupts_paragraph(cls, parser, lines):
+        return cls.start(parser, lines.peek())
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         # first line
         line = cls.convert_leading_tabs(next(lines).lstrip()).split('>', 1)[1]
         if len(line) > 0 and line[0] == ' ':
@@ -243,16 +201,16 @@ class Quote(BlockToken):
         start_line = lines.line_number()
 
         # set booleans
-        in_code_fence = CodeFence.start(line)
-        in_block_code = BlockCode.start(line)
+        in_code_fence = CodeFence.start(parser, line)
+        in_block_code = BlockCode.start(parser, line)
         blank_line = line.strip() == ''
 
         # following lines
         next_line = lines.peek()
-        breaking_tokens = [t for t in _token_types if hasattr(t, 'check_interrupts_paragraph') and not t == Quote]
+        breaking_tokens = [t for t in parser._block_token_types if hasattr(t, 'check_interrupts_paragraph') and not t == Quote]
         while (next_line is not None
                 and next_line.strip() != ''
-                and not any(token_type.check_interrupts_paragraph(lines) for token_type in breaking_tokens)):
+                and not any(token_type.check_interrupts_paragraph(parser, lines) for token_type in breaking_tokens)):
             stripped = cls.convert_leading_tabs(next_line.lstrip())
             prepend = 0
             if stripped[0] == '>':
@@ -261,8 +219,8 @@ class Quote(BlockToken):
                 if stripped[1] == ' ':
                     prepend += 1
                 stripped = stripped[prepend:]
-                in_code_fence = CodeFence.start(stripped)
-                in_block_code = BlockCode.start(stripped)
+                in_code_fence = CodeFence.start(parser, stripped)
+                in_block_code = BlockCode.start(parser, stripped)
                 blank_line = stripped.strip() == ''
                 line_buffer.append(stripped)
             elif in_code_fence or in_block_code or blank_line:
@@ -274,10 +232,12 @@ class Quote(BlockToken):
             next(lines)
             next_line = lines.peek()
 
+
         # parse child block tokens
-        Paragraph.parse_setext = False
-        parse_buffer = tokenizer.tokenize_block(line_buffer, _token_types, start_line=start_line)
-        Paragraph.parse_setext = True
+        # TODO: Put this global in some per-parser context
+        parser.context[Paragraph.parse_setext_key] = False
+        parse_buffer = tokenizer.tokenize_block(line_buffer, parser, parser._block_token_types, start_line=start_line)
+        parser.context[Paragraph.parse_setext_key] = True
         return parse_buffer
 
     @staticmethod
@@ -302,40 +262,41 @@ class Paragraph(BlockToken):
     This is a leaf block token. Its children are inline (span) tokens.
     """
     setext_pattern = re.compile(r' {0,3}(=|-)+ *$')
-    parse_setext = True  # can be disabled by Quote
+    # Key for Parser.context, can be disabled by Quote
+    parse_setext_key = "Paragraph.parse_setext"
 
-    def __new__(cls, lines):
+    def __new__(cls, parser, lines):
         if not isinstance(lines, list):
             # setext heading token, return directly
             return lines
         return super().__new__(cls)
 
-    def __init__(self, lines):
+    def __init__(self, parser, lines):
         content = ''.join([line.lstrip() for line in lines]).strip()
-        super().__init__(content, span_token.tokenize_inner)
+        super().__init__(content, parser.tokenize_inner)
 
     @staticmethod
-    def start(line):
+    def start(parser, line):
         return line.strip() != ''
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         line_buffer = [next(lines)]
         next_line = lines.peek()
-        breaking_tokens = [t for t in _token_types if hasattr(t, 'check_interrupts_paragraph') and not t == ThematicBreak]
+        breaking_tokens = [t for t in parser._block_token_types if hasattr(t, 'check_interrupts_paragraph') and not t == ThematicBreak]
         while (next_line is not None and next_line.strip() != ''):
             # check if a paragraph-breaking token starts on the next line.
             # (except ThematicBreak, because these can be confused with Setext underlines.)
-            if any(token_type.check_interrupts_paragraph(lines) for token_type in breaking_tokens):
+            if any(token_type.check_interrupts_paragraph(parser, lines) for token_type in breaking_tokens):
                 break
 
             # check if the paragraph being parsed is in fact a Setext heading
-            if cls.parse_setext and cls.is_setext_heading(next_line):
+            if parser.context.get(cls.parse_setext_key, True) and cls.is_setext_heading(next_line):
                 line_buffer.append(next(lines))
-                return SetextHeading(line_buffer)
+                return SetextHeading(parser, line_buffer)
 
             # finish the check for paragraph-breaking tokens with the special case: ThematicBreak
-            if ThematicBreak.check_interrupts_paragraph(lines):
+            if ThematicBreak.check_interrupts_paragraph(parser, lines):
                 break
 
             line_buffer.append(next(lines))
@@ -357,7 +318,7 @@ class BlockCode(BlockToken):
     """
     repr_attributes = BlockToken.repr_attributes + ("language",)
 
-    def __init__(self, lines):
+    def __init__(self, parser, lines):
         self.language = ''
         self.children = (span_token.RawText(''.join(lines).strip('\n') + '\n'),)
 
@@ -367,11 +328,11 @@ class BlockCode(BlockToken):
         return self.children[0].content
 
     @staticmethod
-    def start(line):
+    def start(parser, line):
         return line.replace('\t', '    ', 1).startswith('    ')
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         line_buffer = []
         trailing_blanks = 0
         for line in lines:
@@ -414,9 +375,8 @@ class CodeFence(BlockToken):
     """
     repr_attributes = BlockToken.repr_attributes + ("language",)
     pattern = re.compile(r'( {0,3})(`{3,}|~{3,})( *(\S*)[^\n]*)')
-    _open_info = None
 
-    def __init__(self, match):
+    def __init__(self, parser, match):
         lines, open_info = match
         self.indentation = open_info[0]
         self.delimiter = open_info[1]
@@ -430,7 +390,7 @@ class CodeFence(BlockToken):
         return self.children[0].content
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         match_obj = cls.pattern.match(line)
         if not match_obj:
             return False
@@ -439,28 +399,27 @@ class CodeFence(BlockToken):
         # but info strings for tilde code blocks may contain both tildes and backticks.
         if leader[0] == '`' and '`' in info_string:
             return False
-        cls._open_info = len(prepend), leader, info_string, lang
-        return True
+        return len(prepend), leader, info_string, lang
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
-        return cls.start(lines.peek())
+    def check_interrupts_paragraph(cls, parser, lines):
+        return cls.start(parser, lines.peek())
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, open_info, lines):
         next(lines)
         line_buffer = []
         for line in lines:
             stripped_line = line.lstrip(' ')
             diff = len(line) - len(stripped_line)
-            if (stripped_line.startswith(cls._open_info[1])
+            if (stripped_line.startswith(open_info[1])
                     and len(stripped_line.split(maxsplit=1)) == 1
                     and diff < 4):
                 break
-            if diff > cls._open_info[0]:
-                stripped_line = ' ' * (diff - cls._open_info[0]) + stripped_line
+            if diff > open_info[0]:
+                stripped_line = ' ' * (diff - open_info[0]) + stripped_line
             line_buffer.append(stripped_line)
-        return line_buffer, cls._open_info
+        return line_buffer, open_info
 
 
 class List(BlockToken):
@@ -475,8 +434,8 @@ class List(BlockToken):
     repr_attributes = BlockToken.repr_attributes + ("loose", "start")
     pattern = re.compile(r' {0,3}(?:\d{0,9}[.)]|[+\-*])(?:[ \t]*$|[ \t]+)')
 
-    def __init__(self, matches):
-        self.children = [ListItem(*match) for match in matches]
+    def __init__(self, parser, matches):
+        self.children = [ListItem(parser, *match) for match in matches]
         self.loose = any(item.loose for item in self.children)
         leader = self.children[0].leader
         self.start = None
@@ -484,11 +443,11 @@ class List(BlockToken):
             self.start = int(leader[:-1])
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         return cls.pattern.match(line)
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
+    def check_interrupts_paragraph(cls, parser, lines):
         # to break a paragraph, the first line may not be empty (beyond the list marker),
         # and the list must either be unordered or start from 1.
         marker_tuple = ListItem.parse_marker(lines.peek())
@@ -499,13 +458,13 @@ class List(BlockToken):
         return False
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         leader = None
         next_marker = None
         matches = []
         while True:
             anchor = lines.get_pos()
-            output, next_marker = ListItem.read(lines, next_marker)
+            output, next_marker = ListItem.read(parser, None, lines, next_marker)
             item_leader = output[3]
             if leader is None:
                 leader = item_leader
@@ -548,12 +507,12 @@ class ListItem(BlockToken):
     pattern = re.compile(r'( {0,3})(\d{0,9}[.)]|[+\-*])($|\s+)')
     continuation_pattern = re.compile(r'([ \t]*)(\S.*\n|\n)')
 
-    def __init__(self, parse_buffer, indentation, prepend, leader, line_number=None):
+    def __init__(self, parser, parse_buffer, indentation, prepend, leader, line_number=None):
         self.line_number = line_number
         self.leader = leader
         self.indentation = indentation
         self.prepend = prepend
-        self.children = tokenizer.make_tokens(parse_buffer)
+        self.children = tokenizer.make_tokens(parser, parse_buffer)
         self.loose = parse_buffer.loose
 
     @classmethod
@@ -605,7 +564,7 @@ class ListItem(BlockToken):
         return indentation, prepend, leader, content
 
     @classmethod
-    def read(cls, lines, prev_marker=None):
+    def read(cls, parser, ctx, lines, prev_marker=None):
         next_marker = None
         line_buffer = []
 
@@ -633,7 +592,7 @@ class ListItem(BlockToken):
             line_buffer.append(content)
 
         # loop over the following lines, looking for the end of the list item
-        breaking_tokens = [t for t in _token_types if hasattr(t, 'check_interrupts_paragraph') and not t == List]
+        breaking_tokens = [t for t in parser._block_token_types if hasattr(t, 'check_interrupts_paragraph') and not t == List]
         newline_count = 0
         while True:
             if next_line is None:
@@ -648,7 +607,7 @@ class ListItem(BlockToken):
                 # the line doesn't have the indentation to show that it belongs to
                 # the list item, but it should be included anyway by lazy continuation...
                 # ...unless it's the start of another token
-                if any(token_type.check_interrupts_paragraph(lines) for token_type in breaking_tokens):
+                if any(token_type.check_interrupts_paragraph(parser, lines) for token_type in breaking_tokens):
                     if newline_count:
                         lines.backstep()
                         del line_buffer[-newline_count:]
@@ -672,7 +631,7 @@ class ListItem(BlockToken):
 
         # block-level tokens are parsed here, so that footnotes can be
         # recognized before span-level parsing.
-        parse_buffer = tokenizer.tokenize_block(line_buffer, _token_types, start_line=start_line)
+        parse_buffer = tokenizer.tokenize_block(line_buffer, parser, parser._block_token_types, start_line=start_line)
         return (parse_buffer, indentation, prepend, leader, start_line), next_marker
 
 
@@ -696,17 +655,17 @@ class Table(BlockToken):
     column_align_pattern = re.compile(_column_align)
     delimiter_row_pattern = re.compile(r'\s*\|?\s*' + _column_align + r'\s*(\|\s*' + _column_align + r'\s*)*\|?\s*')
 
-    def __init__(self, match):
+    def __init__(self, parser, match):
         lines, start_line = match
         # note: the following condition is currently always true, because read() guarantees the presence of the delimiter row
         if '-' in lines[1]:
             self.column_align = [self.parse_align(column)
                     for column in self.split_delimiter(lines[1])]
-            self.header = TableRow(lines[0], self.column_align, start_line)
-            self.children = [TableRow(line, self.column_align, start_line + offset) for offset, line in enumerate(lines[2:], start=2)]
+            self.header = TableRow(parser, lines[0], self.column_align, start_line)
+            self.children = [TableRow(parser, line, self.column_align, start_line + offset) for offset, line in enumerate(lines[2:], start=2)]
         else:
             self.column_align = [None]
-            self.children = [TableRow(line, line_number=start_line + offset) for offset, line in enumerate(lines)]
+            self.children = [TableRow(parser, line, line_number=start_line + offset) for offset, line in enumerate(lines)]
 
     @classmethod
     def split_delimiter(cls, delimiter_row):
@@ -734,20 +693,20 @@ class Table(BlockToken):
         return (0 if column[0] == ':' else 1) if column[-1] == ':' else None
 
     @staticmethod
-    def start(line):
+    def start(parser, line):
         return '|' in line
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
+    def check_interrupts_paragraph(cls, parser, lines):
         if not cls.interrupt_paragraph:
             return False
         anchor = lines.get_pos()
-        result = cls.read(lines)
+        result = cls.read(parser, None, lines)
         lines.set_pos(anchor)
         return result
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         anchor = lines.get_pos()
         line_buffer = [next(lines)]
         start_line = lines.line_number()
@@ -775,11 +734,11 @@ class TableRow(BlockToken):
     split_pattern = re.compile(r"(?<!\\)\|")
     escaped_pipe_pattern = re.compile(r"(?<!\\)(\\\\)*\\\|")
 
-    def __init__(self, line, row_align=None, line_number=None):
+    def __init__(self, parser, line, row_align=None, line_number=None):
         self.row_align = row_align or [None]
         self.line_number = line_number
         cells = filter(None, self.split_pattern.split(line.strip()))
-        self.children = [TableCell(self.escaped_pipe_pattern.sub('\\1|', cell.strip()) if cell else '', align, line_number)
+        self.children = [TableCell(parser, self.escaped_pipe_pattern.sub('\\1|', cell.strip()) if cell else '', align, line_number)
                          for cell, align in zip_longest(cells, self.row_align)]
 
 
@@ -795,10 +754,10 @@ class TableCell(BlockToken):
     """
     repr_attributes = BlockToken.repr_attributes + ("align",)
 
-    def __init__(self, content, align=None, line_number=None):
+    def __init__(self, parser, content, align=None, line_number=None):
         self.align = align
         self.line_number = line_number
-        super().__init__(content, span_token.tokenize_inner)
+        super().__init__(content, parser.tokenize_inner)
 
 
 class Footnote(BlockToken):
@@ -810,15 +769,15 @@ class Footnote(BlockToken):
     and stored into the root node within `Footnote.read()`. We don't put instances of
     this class into the resulting AST.
     """
-    def __new__(cls, _):
+    def __new__(cls, parser, _):
         return None
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         return line.lstrip().startswith('[')
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         line_buffer = []
         next_line = lines.peek()
         while next_line is not None and next_line.strip() != '':
@@ -835,7 +794,7 @@ class Footnote(BlockToken):
                 break
             offset, match = match_info
             matches.append(match)
-        cls.append_footnotes(matches, token._root_node)
+        cls.append_footnotes(matches, parser._root_node)
         return matches or None
 
     @classmethod
@@ -1004,19 +963,19 @@ class ThematicBreak(BlockToken):
     """
     pattern = re.compile(r' {0,3}(?:([-_*])\s*?)(?:\1\s*?){2,}$')
 
-    def __init__(self, lines):
+    def __init__(self, parser, lines):
         self.line = lines[0].strip('\n')
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         return cls.pattern.match(line)
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
-        return cls.start(lines.peek())
+    def check_interrupts_paragraph(cls, parser, lines):
+        return cls.start(parser, lines.peek())
 
     @staticmethod
-    def read(lines):
+    def read(parser, ctx, lines):
         return [next(lines)]
 
 
@@ -1032,7 +991,7 @@ class HtmlBlock(BlockToken):
     custom_tag = re.compile(r'(?:' + '|'.join((span_token._open_tag,
                                 span_token._closing_tag)) + r')\s*$')
 
-    def __init__(self, lines):
+    def __init__(self, parser, lines):
         self.children = (span_token.RawText(''.join(lines).rstrip('\n')),)
 
     @property
@@ -1041,56 +1000,51 @@ class HtmlBlock(BlockToken):
         return self.children[0].content
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         stripped = line.lstrip()
         if len(line) - len(stripped) >= 4:
             return False
         # rule 1: HTML tags designed to contain literal content, allow newlines in block
         match_obj = cls.multiblock.match(stripped)
         if match_obj is not None:
-            cls._end_cond = '</{}>'.format(match_obj.group(1).casefold())
-            return 1
+            # Tuple (rule_num, end_cond)
+            return 1, '</{}>'.format(match_obj.group(1).casefold())
         # rule 2: html comment tags, allow newlines in block
         if stripped.startswith('<!--'):
-            cls._end_cond = '-->'
-            return 2
+            return 2, '-->'
         # rule 3: tags that starts with <?, allow newlines in block
         if stripped.startswith('<?'):
-            cls._end_cond = '?>'
-            return 3
+            return 3, '?>'
         # rule 4: tags that starts with <!, allow newlines in block
         if stripped.startswith('<!') and stripped[2].isupper():
-            cls._end_cond = '>'
-            return 4
+            return 4, '>'
         # rule 5: CDATA declaration, allow newlines in block
         if stripped.startswith('<![CDATA['):
-            cls._end_cond = ']]>'
-            return 5
+            return 5, ']]>'
         # rule 6: predefined tags (see html_token._tags), read until newline
         match_obj = cls.predefined.match(stripped)
         if match_obj is not None and match_obj.group(1).casefold() in span_token._tags:
-            cls._end_cond = None
-            return 6
+            return 6, None
         # rule 7: custom tags, read until newline
         match_obj = cls.custom_tag.match(stripped)
         if match_obj is not None:
-            cls._end_cond = None
-            return 7
+            return 7, None
         return False
 
     @classmethod
-    def check_interrupts_paragraph(cls, lines):
-        html_block = cls.start(lines.peek())
-        return html_block and html_block != 7
+    def check_interrupts_paragraph(cls, parser, lines):
+        html_block = cls.start(parser, lines.peek())
+        return html_block and html_block[0] != 7
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
+        rule_num, end_cond = ctx
         # note: stop condition can trigger on the starting line
         line_buffer = []
         for line in lines:
             line_buffer.append(line)
-            if cls._end_cond is not None:
-                if cls._end_cond in line.casefold():
+            if end_cond is not None:
+                if end_cond in line.casefold():
                     break
             elif line.strip() == '':
                 line_buffer.pop()
@@ -1103,7 +1057,3 @@ HTMLBlock = HtmlBlock
 """
 Deprecated name of the `HtmlBlock` class.
 """
-
-
-_token_types = []
-reset_tokens()

@@ -1,7 +1,7 @@
 import unittest
 
-import mistletoe.block_token as block_token
-import mistletoe.span_token as span_token
+from mistletoe import block_token, span_token
+from mistletoe.parser import Parser
 from mistletoe.markdown_renderer import (
     LinkReferenceDefinition,
     LinkReferenceDefinitionBlock,
@@ -10,22 +10,21 @@ from mistletoe.markdown_renderer import (
 
 class TestLineNumbers(unittest.TestCase):
     def setUp(self) -> None:
-        block_token.add_token(block_token.HTMLBlock)
-        span_token.add_token(span_token.HTMLSpan)
-        block_token.remove_token(block_token.Footnote)
-        block_token.add_token(LinkReferenceDefinitionBlock)
+        self.parser = Parser()
+        self.parser.add_block_token(block_token.HTMLBlock)
+        self.parser.add_span_token(span_token.HTMLSpan)
+        self.parser.remove_block_token(block_token.Footnote)
+        self.parser.add_block_token(LinkReferenceDefinitionBlock)
         return super().setUp()
 
     def tearDown(self) -> None:
-        span_token.reset_tokens()
-        block_token.reset_tokens()
         return super().tearDown()
 
     def test_main(self):
         # see line_numbers.md for a description of how the test works.
         NUMBER_OF_LINE_NUMBERS_TO_BE_CHECKED = 13
         with open("test/samples/line_numbers.md", "r") as fin:
-            document = block_token.Document(fin)
+            document = self.parser.parse_document(fin)
         count = self.check_line_numbers(document)
         self.assertEqual(count, NUMBER_OF_LINE_NUMBERS_TO_BE_CHECKED)
 

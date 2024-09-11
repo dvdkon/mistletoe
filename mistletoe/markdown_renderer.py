@@ -18,15 +18,15 @@ class BlankLine(block_token.BlockToken):
 
     pattern = re.compile(r"\s*\n$")
 
-    def __init__(self, _):
+    def __init__(self, parser, _):
         self.children = []
 
     @classmethod
-    def start(cls, line):
+    def start(cls, parser, line):
         return cls.pattern.match(line)
 
     @classmethod
-    def read(cls, lines):
+    def read(cls, parser, ctx, lines):
         return [next(lines)]
 
 
@@ -62,7 +62,7 @@ class LinkReferenceDefinitionBlock(block_token.Footnote):
         obj.__init__(*args, **kwargs)
         return obj
 
-    def __init__(self, matches):
+    def __init__(self, parser, matches):
         self.children = [LinkReferenceDefinition(match) for match in matches]
 
 
@@ -109,7 +109,6 @@ class MarkdownRenderer(BaseRenderer):
                 use this flag to control whether to replace the original
                 spacing after every list item leader with just 1 space.
         """
-        block_token.remove_token(block_token.Footnote)
         super().__init__(
             *chain(
                 (
@@ -121,6 +120,7 @@ class MarkdownRenderer(BaseRenderer):
                 extras,
             )
         )
+        self.parser.remove_block_token(block_token.Footnote)
         self.render_map["SetextHeading"] = self.render_setext_heading
         self.render_map["CodeFence"] = self.render_fenced_code_block
         self.render_map[
@@ -152,7 +152,8 @@ class MarkdownRenderer(BaseRenderer):
         return self.embed_span(Fragment(token.delimiter * 2), token.children)
 
     def render_emphasis(self, token: span_token.Emphasis) -> Iterable[Fragment]:
-        return self.embed_span(Fragment(token.delimiter), token.children)
+        c = token.children
+        return self.embed_span(Fragment(token.delimiter), c)
 
     def render_inline_code(self, token: span_token.InlineCode) -> Iterable[Fragment]:
         return self.embed_span(

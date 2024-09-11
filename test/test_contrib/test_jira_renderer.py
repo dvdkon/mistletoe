@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 from test.base_test import BaseRendererTest
-from mistletoe.span_token import tokenize_inner
 from mistletoe.contrib.jira_renderer import JiraRenderer
 import random
 import string
@@ -48,7 +47,7 @@ class TestJiraRenderer(BaseRendererTest):
 
     def textFormatTest(self, inputTemplate, outputTemplate):
         input = self.genRandomString(80, False)
-        token = next(iter(tokenize_inner(inputTemplate.format(input))))
+        token = next(iter(self.renderer.parser.tokenize_inner(inputTemplate.format(input))))
         output = self.renderer.render(token)
         expected = outputTemplate.format(input)
         self.assertEqual(output, expected)
@@ -84,7 +83,7 @@ class TestJiraRenderer(BaseRendererTest):
         self.textFormatTest('~~{}~~', '-{}-')
 
     def test_render_image(self):
-        token = next(iter(tokenize_inner('![image](foo.jpg)')))
+        token = next(iter(self.renderer.parser.tokenize_inner('![image](foo.jpg)')))
         output = self.renderer.render(token)
         expected = '!foo.jpg!'
         self.assertEqual(output, expected)
@@ -99,7 +98,7 @@ class TestJiraRenderer(BaseRendererTest):
     def test_render_link(self):
         url = 'http://{0}.{1}.{2}'.format(self.genRandomString(5), self.genRandomString(5), self.genRandomString(3))
         body = self.genRandomString(80, True)
-        token = next(iter(tokenize_inner('[{body}]({url})'.format(url=url, body=body))))
+        token = next(iter(self.renderer.parser.tokenize_inner('[{body}]({url})'.format(url=url, body=body))))
         output = self.renderer.render(token)
         expected = '[{body}|{url}]'.format(url=url, body=body)
         self.assertEqual(output, expected)
@@ -108,7 +107,7 @@ class TestJiraRenderer(BaseRendererTest):
         url = 'http://{0}.{1}.{2}'.format(self.genRandomString(5), self.genRandomString(5), self.genRandomString(3))
         body = self.genRandomString(80, True)
         title = self.genRandomString(20, True)
-        token = next(iter(tokenize_inner('[{body}]({url} "{title}")'.format(url=url, body=body, title=title))))
+        token = next(iter(self.renderer.parser.tokenize_inner('[{body}]({url} "{title}")'.format(url=url, body=body, title=title))))
         output = self.renderer.render(token)
         expected = '[{body}|{url}|{title}]'.format(url=url, body=body, title=title)
         self.assertEqual(output, expected)
@@ -118,7 +117,7 @@ class TestJiraRenderer(BaseRendererTest):
 
     def test_render_auto_link(self):
         url = 'http://{0}.{1}.{2}'.format(self.genRandomString(5), self.genRandomString(5), self.genRandomString(3))
-        token = next(iter(tokenize_inner('<{url}>'.format(url=url))))
+        token = next(iter(self.renderer.parser.tokenize_inner('<{url}>'.format(url=url))))
         output = self.renderer.render(token)
         expected = '[{url}]'.format(url=url)
         self.assertEqual(output, expected)

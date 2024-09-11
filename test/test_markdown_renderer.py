@@ -375,8 +375,8 @@ class TestMarkdownRenderer(unittest.TestCase):
             "Line 1\n",
             "Line 2\n",
         ]
-        paragraph = block_token.Paragraph(input)
         with MarkdownRenderer() as renderer:
+            paragraph = block_token.Paragraph(renderer.parser, input)
             lines = renderer.render(paragraph)
         assert lines == "".join(input)
 
@@ -393,6 +393,7 @@ class TestMarkdownFormatting(unittest.TestCase):
         with MarkdownRenderer() as renderer:
             # given a paragraph with only plain text and soft line breaks
             paragraph = block_token.Paragraph(
+                renderer.parser,
                 [
                     "A \n",
                     "short   paragraph \n",
@@ -433,6 +434,7 @@ class TestMarkdownFormatting(unittest.TestCase):
         with MarkdownRenderer() as renderer:
             # given a paragraph with emphasized words
             paragraph = block_token.Paragraph(
+                renderer.parser,
                 ["*emphasized* _nested *emphasis* too_\n"]
             )
 
@@ -452,6 +454,7 @@ class TestMarkdownFormatting(unittest.TestCase):
         with MarkdownRenderer() as renderer:
             # given a paragraph with inline code
             paragraph = block_token.Paragraph(
+                renderer.parser,
                 [
                     "`inline code` and\n",
                     "`` inline with\n",
@@ -480,6 +483,7 @@ class TestMarkdownFormatting(unittest.TestCase):
         with MarkdownRenderer() as renderer:
             # given a paragraph with hard line breaks
             paragraph = block_token.Paragraph(
+                renderer.parser,
                 [
                     "A short paragraph  \n",
                     "  without any\\\n",
@@ -503,6 +507,7 @@ class TestMarkdownFormatting(unittest.TestCase):
         with MarkdownRenderer() as renderer:
             # given a paragraph with a link
             paragraph = block_token.Paragraph(
+                renderer.parser,
                 [
                     "A paragraph\n",
                     "containing [a link](<link destination with non-breaking spaces> 'which\n",

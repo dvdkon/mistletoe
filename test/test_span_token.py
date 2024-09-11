@@ -1,18 +1,19 @@
 import unittest
 from unittest.mock import patch
 from mistletoe import span_token
+from mistletoe.parser import Parser
 
 
 class TestBranchToken(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(lambda: span_token._token_types.__setitem__(-1, span_token.RawText))
+        self.parser = Parser()
         patcher = patch('mistletoe.span_token.RawText')
         self.mock = patcher.start()
-        span_token._token_types[-1] = self.mock
+        self.parser._fallback_token = self.mock
         self.addCleanup(patcher.stop)
 
     def _test_parse(self, token_cls, raw, arg, **kwargs):
-        token = next(iter(span_token.tokenize_inner(raw)))
+        token = next(iter(self.parser.tokenize_inner(raw)))
         self.assertIsInstance(token, token_cls)
         self._test_token(token, arg, **kwargs)
         return token
@@ -30,7 +31,7 @@ class TestStrong(TestBranchToken):
         self._test_parse(span_token.Strong, '__some text__', 'some text')
 
     def test_strong_when_both_delimiter_run_lengths_are_multiples_of_3(self):
-        tokens = iter(span_token.tokenize_inner('foo******bar*********baz'))
+        tokens = iter(self.parser.tokenize_inner('foo******bar*********baz'))
         self._test_token(next(tokens), 'foo', children=False)
         self._test_token(next(tokens), 'bar', children=True)
         self._test_token(next(tokens), '***baz', children=False)
@@ -42,21 +43,21 @@ class TestEmphasis(TestBranchToken):
         self._test_parse(span_token.Emphasis, '_some text_', 'some text')
 
     def test_emphasis_with_straight_quote(self):
-        tokens = iter(span_token.tokenize_inner('_Book Title_\'s author'))
+        tokens = iter(self.parser.tokenize_inner('_Book Title_\'s author'))
         self._test_token(next(tokens), 'Book Title', children=True)
         self._test_token(next(tokens), '\'s author', children=False)
 
     def test_emphasis_with_smart_quote(self):
-        tokens = iter(span_token.tokenize_inner('_Book Title_’s author'))
+        tokens = iter(self.parser.tokenize_inner('_Book Title_’s author'))
         self._test_token(next(tokens), 'Book Title', children=True)
         self._test_token(next(tokens), '’s author', children=False)
 
     def test_no_emphasis_for_underscore_without_punctuation(self):
-        tokens = iter(span_token.tokenize_inner('_an example without_punctuation'))
+        tokens = iter(self.parser.tokenize_inner('_an example without_punctuation'))
         self._test_token(next(tokens), '_an example without_punctuation', children=True)
 
     def test_emphasis_for_asterisk_without_punctuation(self):
-        tokens = iter(span_token.tokenize_inner('*an example without*punctuation'))
+        tokens = iter(self.parser.tokenize_inner('*an example without*punctuation'))
         self._test_token(next(tokens), 'an example without', children=True)
         self._test_token(next(tokens), 'punctuation', children=False)
 
@@ -95,7 +96,7 @@ class TestStrikethrough(TestBranchToken):
         self._test_parse(span_token.Strikethrough, '~~some text~~', 'some text')
 
     def test_parse_multiple(self):
-        tokens = iter(span_token.tokenize_inner('~~one~~ ~~two~~'))
+        tokens = iter(self.parser.tokenize_inner('~~one~~ ~~two~~'))
         self._test_token(next(tokens), 'one')
         self._test_token(next(tokens), 'two')
 
@@ -106,13 +107,13 @@ class TestLink(TestBranchToken):
                          target='target1', title='')
 
     def test_parse_multi_links(self):
-        tokens = iter(span_token.tokenize_inner('[n1](t1) & [n2](t2)'))
+        tokens = iter(self.parser.tokenize_inner('[n1](t1) & [n2](t2)'))
         self._test_token(next(tokens), 'n1', target='t1')
         self._test_token(next(tokens), ' & ', children=False)
         self._test_token(next(tokens), 'n2', target='t2')
 
     def test_parse_children(self):
-        token = next(iter(span_token.tokenize_inner('[![alt](src)](target)')))
+        token = next(iter(self.parser.tokenize_inner('[![alt](src)](target)')))
         child = next(iter(token.children))
         self._test_token(child, 'alt', src='src')
 
@@ -141,7 +142,7 @@ class TestEscapeSequence(TestBranchToken):
         self._test_parse(span_token.EscapeSequence, r'\*', '*')
 
     def test_parse_in_text(self):
-        tokens = iter(span_token.tokenize_inner(r'some \*text*'))
+        tokens = iter(self.parser.tokenize_inner(r'some \*text*'))
         self._test_token(next(tokens), 'some ', children=False)
         self._test_token(next(tokens), '*')
         self._test_token(next(tokens), 'text*', children=False)
@@ -157,35 +158,35 @@ class TestRawText(unittest.TestCase):
         self.assertIsNone(token.children)
 
     def test_valid_html_entities(self):
-        tokens = span_token.tokenize_inner('&nbsp; &#21512;')
+        tokens = Parser().tokenize_inner('&nbsp; &#21512;')
         self.assertEqual(tokens[0].content, '\xa0 \u5408')
 
     def test_invalid_html_entities(self):
         text = '&nbsp &x; &#; &#x; &#87654321; &#abcdef0; &ThisIsNotDefined; &hi?;'
-        tokens = span_token.tokenize_inner(text)
+        tokens = Parser().tokenize_inner(text)
         self.assertEqual(tokens[0].content, text)
 
 
 class TestLineBreak(unittest.TestCase):
     def test_parse_soft_break(self):
-        token, = span_token.tokenize_inner('\n')
+        token, = Parser().tokenize_inner('\n')
         self.assertIsInstance(token, span_token.LineBreak)
         self.assertTrue(token.soft)
 
     def test_parse_hard_break_with_double_blanks(self):
-        token, = span_token.tokenize_inner('  \n')
+        token, = Parser().tokenize_inner('  \n')
         self.assertIsInstance(token, span_token.LineBreak)
         self.assertFalse(token.soft)
 
     def test_parse_hard_break_with_backslash(self):
-        _, token, = span_token.tokenize_inner(' \\\n')
+        _, token, = Parser().tokenize_inner(' \\\n')
         self.assertIsInstance(token, span_token.LineBreak)
         self.assertFalse(token.soft)
 
 
 class TestContains(unittest.TestCase):
     def test_contains(self):
-        token = next(iter(span_token.tokenize_inner('**with some *emphasis* text**')))
+        token = next(iter(Parser().tokenize_inner('**with some *emphasis* text**')))
         self.assertTrue('text' in token)
         self.assertTrue('emphasis' in token)
         self.assertFalse('foo' in token)
@@ -193,22 +194,22 @@ class TestContains(unittest.TestCase):
 
 class TestParent(unittest.TestCase):
     def test_parent(self):
-        token, = span_token.tokenize_inner('**some text**')
+        token, = Parser().tokenize_inner('**some text**')
         self.assertIsInstance(token.children[0], span_token.RawText)
         self.assertEqual(token.children[0].parent, token)
 
 
 class TestHtmlSpan(unittest.TestCase):
     def setUp(self):
-        span_token.add_token(span_token.HtmlSpan)
-        self.addCleanup(span_token.reset_tokens)
+        self.parser = Parser()
+        self.parser.add_span_token(span_token.HtmlSpan)
 
     def test_parse(self):
-        tokens = span_token.tokenize_inner('<a>')
+        tokens = self.parser.tokenize_inner('<a>')
         self.assertIsInstance(tokens[0], span_token.HtmlSpan)
         self.assertEqual('<a>', tokens[0].content)
 
     def test_parse_with_illegal_whitespace(self):
-        tokens = span_token.tokenize_inner('< a><\nfoo><bar/ >\n<foo bar=baz\nbim!bop />')
+        tokens = self.parser.tokenize_inner('< a><\nfoo><bar/ >\n<foo bar=baz\nbim!bop />')
         for t in tokens:
             self.assertNotIsInstance(t, span_token.HtmlSpan)

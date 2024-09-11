@@ -46,7 +46,7 @@ class TocRenderer(HtmlRenderer):
             return template.format(indent=get_indent(level), content=content)
 
         lines = [build_list_item(heading) for heading in self._headings]
-        items = block_token.tokenize(lines)
+        items = self.parser.tokenize_blocks(lines)
         return items[0]
 
     def render_heading(self, token):

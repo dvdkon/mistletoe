@@ -10,5 +10,5 @@ class TestScheme(TestCase):
                 "(define x (* 2 21))",
                 "x",
             ]
-            result = renderer.render(Program(prog))
+            result = renderer.render(Program(renderer.parser, prog))
             self.assertEqual(result, 42)

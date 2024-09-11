@@ -14,11 +14,11 @@ _markdown_charref = re.compile(r'&(#[0-9]{1,7};'
 _stdlib_charref = html._charref
 
 
-def tokenize(string, token_types):
+def tokenize(parser, string, token_types, fallback_token):
     try:
+        # TODO: Don't write this global?
         html._charref = _markdown_charref
-        *token_types, fallback_token = token_types
-        tokens = find_tokens(string, token_types, fallback_token)
+        tokens = find_tokens(parser, string, token_types, fallback_token)
         token_buffer = []
         if tokens:
             prev = tokens[0]
@@ -30,10 +30,10 @@ def tokenize(string, token_types):
         html._charref = _stdlib_charref
 
 
-def find_tokens(string, token_types, fallback_token):
+def find_tokens(parser, string, token_types, fallback_token):
     tokens = []
     for token_type in token_types:
-        for m in token_type.find(string):
+        for m in token_type.find(parser, string):
             tokens.append(ParseToken(m.start(), m.end(), m, string, token_type, fallback_token))
     return sorted(tokens)
 

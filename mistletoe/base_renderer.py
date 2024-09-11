@@ -3,7 +3,7 @@ Base class for renderers.
 """
 
 import re
-from mistletoe import block_token, span_token
+from mistletoe import block_token, span_token, parser
 
 
 class BaseRenderer(object):
@@ -71,12 +71,15 @@ class BaseRenderer(object):
         }
         self._extras = extras
 
+        # Each renderer has its own associated parser with the tokens the
+        # renderer supports
+        self.parser = parser.Parser()
+
         for token in extras:
             if issubclass(token, span_token.SpanToken):
-                token_module = span_token
+                self.parser.add_span_token(token)
             else:
-                token_module = block_token
-            token_module.add_token(token)
+                self.parser.add_block_token(token)
             render_func = getattr(self, self._cls_to_func(token.__name__))
             self.render_map[token.__name__] = render_func
 
@@ -113,6 +116,7 @@ class BaseRenderer(object):
         """
         Make renderer classes into context managers.
         """
+        parser._global_parser = self.parser
         return self
 
     def __exit__(self, exception_type, exception_val, traceback):
@@ -121,8 +125,8 @@ class BaseRenderer(object):
 
         Reset block_token._token_types and span_token._token_types.
         """
-        block_token.reset_tokens()
-        span_token.reset_tokens()
+        # TODO: Optimize this, don't create a new default parser every time
+        parser._global_parser = parser.Parser()
 
     @classmethod
     def _cls_to_func(cls, cls_name):
