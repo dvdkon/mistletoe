@@ -4,6 +4,7 @@ Built-in block-level token classes.
 
 import re
 from itertools import zip_longest
+from typing import Iterable, Union
 import mistletoe.block_tokenizer as tokenizer
 from mistletoe import token, span_token, parser
 from mistletoe.core_tokens import (
@@ -91,7 +92,7 @@ class Document(BlockToken):
         footnotes (dictionary): link reference definitions.
     """
 
-    def __init__(self, lines=None):
+    def __init__(self, lines: Union[str, Iterable[str]] | None = None):
         self.footnotes = {}
         self.children = []
         self.line_number = 1
