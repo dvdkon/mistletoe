@@ -12,8 +12,8 @@ class TestTocRenderer(TestCase):
 
     def test_render_heading(self):
         renderer = TocRenderer()
-        Heading.start(renderer.parser, '### some *text*\n')
-        token = Heading(renderer.parser, Heading.read(renderer.parser, None, iter(['foo'])))
+        ctx = Heading.start(renderer.parser, '### some *text*\n')
+        token = Heading(renderer.parser, Heading.read(renderer.parser, ctx, iter(['foo'])))
         renderer.render_heading(token)
         self.assertEqual(renderer._headings[0], (3, 'some text'))
 

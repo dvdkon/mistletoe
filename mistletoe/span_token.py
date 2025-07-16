@@ -8,7 +8,7 @@ from mistletoe import core_tokens, token
 
 
 __all__ = ['EscapeSequence', 'Strikethrough', 'AutoLink', 'CoreTokens',
-           'InlineCode', 'LineBreak', 'RawText']
+           'LineBreak', 'RawText']
 """
 Tokens to be included in the parsing process, in the order specified.
 """
@@ -19,8 +19,12 @@ class SpanToken(token.Token):
     parse_group = 1
     precedence = 5
 
+    @classmethod
+    def parse_inner_for_match(cls, match):
+        return cls.parse_inner
+
     def __init__(self, match):
-        if not self.parse_inner:
+        if not self.parse_inner_for_match(match):
             self.content = match.group(self.parse_group)
 
     def __contains__(self, text):
@@ -39,6 +43,10 @@ class CoreTokens(SpanToken):
     Replaced with objects of the proper classes in the final stage of parsing.
     """
     precedence = 3
+
+    @classmethod
+    def parse_inner_for_match(cls, match):
+        return globals()[match.type].parse_inner_for_match(match)
 
     def __new__(cls, match):
         return globals()[match.type](match)
@@ -73,24 +81,16 @@ class InlineCode(SpanToken):
     Inline code token. ("`some code`")
     This is an inline token with a single child of type RawText.
     """
-    pattern = re.compile(r"(?<!\\|`)(?:\\\\)*(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
     parse_inner = False
-    parse_group = 2
 
     def __init__(self, match):
-        content = match.group(self.parse_group)
-        self.delimiter = match.group(1)
+        self.delimiter = match.delimiter
+        _start, _end, content = match.fields[0]
         content = content.replace('\n', ' ')
         self.padding = " " if not content.isspace() and content.startswith(" ") and content.endswith(" ") else ""
         if self.padding:
             content = content[1:-1]
         self.children = (RawText(content),)
-
-    @classmethod
-    def find(cls, parser, string):
-        matches = core_tokens._code_matches
-        core_tokens._code_matches = []
-        return matches
 
 
 class Strikethrough(SpanToken):

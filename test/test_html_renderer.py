@@ -32,7 +32,8 @@ class TestHtmlRenderer(TestRenderer):
     def test_inline_code(self):
         output = self.renderer.render(self.renderer.parser.tokenize_inner('`foo`')[0])
         self.assertEqual(output, '<code>foo</code>')
-        output = self.renderer.render(self.renderer.parser.tokenize_inner('`` \\[\\` ``')[0])
+        tok = self.renderer.parser.tokenize_inner('`` \\[\\` ``')[0]
+        output = self.renderer.render(tok)
         self.assertEqual(output, '<code>\\[\\`</code>')
 
     def test_strikethrough(self):

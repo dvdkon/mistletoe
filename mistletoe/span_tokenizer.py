@@ -103,14 +103,14 @@ class ParseToken:
         self.children = []
 
     def append_child(self, child):
-        if self.cls.parse_inner:
+        if self.cls.parse_inner_for_match(self.match):
             if not self.children:
                 self.children.append(child)
             else:
                 eval_new_child(self, child)
 
     def make(self):
-        if not self.cls.parse_inner:
+        if not self.cls.parse_inner_for_match(self.match):
             return self.cls(self.match)
         children = make_tokens(self.children, self.parse_start, self.parse_end, self.string, self.fallback_token)
         token = self.cls(self.match)

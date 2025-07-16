@@ -11,9 +11,6 @@ unicode_whitespace = {'\t', '\n', '\x0b', '\x0c', '\r', '\x1c', '\x1d', '\x1e',
 code_pattern = re.compile(r"(?<!\\|`)(?:\\\\)*(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 
 
-_code_matches = []
-
-
 def find_core_tokens(string, root):
     delimiters = []
     matches = []
@@ -29,7 +26,19 @@ def find_core_tokens(string, root):
                 delimiters.append(Delimiter(start, i if not escaped else i - 1, string))
                 in_delimiter_run = None
                 escaped = False
-            _code_matches.append(code_match)
+            delimiter = code_match.group(1)
+            match = MatchObj(
+                code_match.start(),
+                code_match.end(),
+                'InlineCode',
+                (
+                    code_match.start() + len(delimiter),
+                    code_match.end() - len(delimiter),
+                    code_match.group(2),
+                ),
+            )
+            match.delimiter = delimiter
+            matches.append(match)
             i = code_match.end()
             code_match = code_pattern.search(string, i)
             continue
@@ -109,8 +118,9 @@ def process_emphasis(string, stack_bottom, delimiters, matches):
             n = 2 if closer.number >= 2 and opener.number >= 2 else 1
             start = opener.end - n
             end = closer.start + n
-            match = MatchObj(start, end, (start + n, end - n, string[start + n:end - n]))
-            match.type = 'Strong' if n == 2 else 'Emphasis'
+            match = MatchObj(start, end,
+                             'Strong' if n == 2 else 'Emphasis',
+                             (start + n, end - n, string[start + n:end - n]))
             match.delimiter = string[start]
             matches.append(match)
             # remove all delimiters in between
@@ -160,10 +170,10 @@ def match_link_image(string, offset, delimiter, root=None):
                 if paren_index < len(string) and string[paren_index] == ')':
                     end = paren_index + 1
                     match = MatchObj(start, end,
-                                      (text_start, text_end, text),
-                                      (dest_start, dest_end, dest),
-                                      (title_start, title_end, title))
-                    match.type = 'Link' if not image else 'Image'
+                                     'Link' if not image else 'Image',
+                                     (text_start, text_end, text),
+                                     (dest_start, dest_end, dest),
+                                     (title_start, title_end, title))
                     match.dest_type = "angle_uri" if dest_start < dest_end and string[dest_start] == "<" else "uri"
                     match.title_delimiter = string[title_start] if title_start < title_end else None
                     return match
@@ -175,10 +185,10 @@ def match_link_image(string, offset, delimiter, root=None):
             match_info, (dest, title) = result
             end = match_info[1]
             match = MatchObj(start, end,
-                              (text_start, text_end, text),
-                              (-1, -1, dest),
-                              (-1, -1, title))
-            match.type = 'Link' if not image else 'Image'
+                             'Link' if not image else 'Image',
+                             (text_start, text_end, text),
+                             (-1, -1, dest),
+                             (-1, -1, title))
             match.label = match_info[2]
             match.dest_type = "full"
             return match
@@ -189,10 +199,10 @@ def match_link_image(string, offset, delimiter, root=None):
                 dest, title = ref
                 end = offset + 3
                 match = MatchObj(start, end,
-                                  (text_start, text_end, text),
-                                  (-1, -1, dest),
-                                  (-1, -1, title))
-                match.type = 'Link' if not image else 'Image'
+                                 'Link' if not image else 'Image',
+                                 (text_start, text_end, text),
+                                 (-1, -1, dest),
+                                 (-1, -1, title))
                 match.dest_type = "collapsed"
                 return match
         return None
@@ -202,10 +212,10 @@ def match_link_image(string, offset, delimiter, root=None):
         dest, title = ref
         end = offset + 1
         match = MatchObj(start, end,
-                          (text_start, text_end, text),
-                          (-1, -1, dest),
-                          (-1, -1, title))
-        match.type = 'Link' if not image else 'Image'
+                         'Link' if not image else 'Image',
+                         (text_start, text_end, text),
+                         (-1, -1, dest),
+                         (-1, -1, title))
         match.dest_type = "shortcut"
         return match
     return None
@@ -451,9 +461,10 @@ class Delimiter:
 
 
 class MatchObj:
-    def __init__(self, start, end, *fields):
+    def __init__(self, start: int, end: int, type: str, *fields: tuple[int, int, str]):
         self._start = start
         self._end = end
+        self.type = type
         self.fields = fields
 
     def start(self, n=0):
@@ -472,4 +483,4 @@ class MatchObj:
         return self.fields[n - 1][2]
 
     def __repr__(self):
-        return '<MatchObj fields={} start={} end={}>'.format(self.fields, self._start, self._end)
+        return '<MatchObj type={} fields={} start={} end={}>'.format(self.type, self.fields, self._start, self._end)

@@ -24,7 +24,7 @@ class Expr(span_token.SpanToken):
                 pos = start.pop()
                 end_pos = i + 1
                 content = string[pos + 1:i]
-                matches.append(MatchObj(pos, end_pos, (pos + 1, i, content)))
+                matches.append(MatchObj(pos, end_pos, 'expr', (pos + 1, i, content)))
         return matches
 
     def __repr__(self):

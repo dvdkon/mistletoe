@@ -128,12 +128,12 @@ class Heading(BlockToken):
         match_obj = cls.pattern.match(line)
         if match_obj is None:
             return False
-        cls.level = len(match_obj.group(1))
-        cls.content = (match_obj.group(2) or '').strip()
-        if set(cls.content) == {'#'}:
-            cls.content = ''
-        cls.closing_sequence = (match_obj.group(3) or '').strip()
-        return True
+        level = len(match_obj.group(1))
+        content = (match_obj.group(2) or '').strip()
+        if set(content) == {'#'}:
+            content = ''
+        closing_sequence = (match_obj.group(3) or '').strip()
+        return (level, content, closing_sequence)
 
     @classmethod
     def check_interrupts_paragraph(cls, parser, lines):
@@ -142,7 +142,7 @@ class Heading(BlockToken):
     @classmethod
     def read(cls, parser, ctx, lines):
         next(lines)
-        return cls.level, cls.content, cls.closing_sequence
+        return ctx
 
 
 class SetextHeading(BlockToken):
